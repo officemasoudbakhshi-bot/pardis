@@ -946,6 +946,81 @@ async def update_meeting_message(context: ContextTypes.DEFAULT_TYPE, meeting_id)
 
 def setup_handlers():
     """تنظیم و اضافه کردن هندلرها"""
+    
+    # ابتدا هندلرهای خاص برای approval کاربران
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
+        (filters.Regex(r'✅ تایید کاربر \d+') | filters.Regex(r'❌ رد کاربر \d+')),
+        handle_admin_approval
+    ))
+
+    # ConversationHandler برای ایجاد جلسه (باید قبل از هندلر عمومی باشد)
+    meeting_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(
+            filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
+            filters.Regex('^🎯 ایجاد جلسه جدید$'),
+            create_meeting_start
+        )],
+        states={
+            MEETING_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_date)],
+            MEETING_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_time)],
+            MEETING_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_duration)],
+            MEETING_LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_location)],
+            MEETING_MANAGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_manager)],
+            MEETING_TOPICS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_topics)],
+            MEETING_INVITEES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_invitees)],
+            MEETING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_link)],
+            MEETING_FILES: [MessageHandler(filters.TEXT | filters.Document.ALL, get_meeting_files)],
+            MEETING_CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_meeting)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    )
+
+    application.add_handler(meeting_conv_handler)
+
+    # هندلر برای مدیریت جلسات
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
+        filters.Regex('^📅 مدیریت جلسات$'),
+        manage_meetings
+    ))
+
+    # فقط یک هندلر اصلی برای تمام دستورات ادمین
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=ADMIN_ID),
+        handle_admin_commands
+    ))
+
+    # ConversationHandler برای احراز هویت کاربران
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start_command)],
+        states={
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+            PHONE: [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), get_phone)],
+            SCREENSHOT: [MessageHandler(filters.PHOTO, get_screenshot)],
+            CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_data)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    )
+
+    application.add_handler(conv_handler)
+    
+    # هندلر برای پیام‌های گروه
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=GROUP_CHAT_ID), 
+        handle_group_messages
+    ))
+    
+    # هندلر برای callback queries
+    application.add_handler(CallbackQueryHandler(
+        handle_attendance_callback,
+        pattern=r"^attend_"
+    ))
+
+    application.add_error_handler(error_handler)
+    """تنظیم و اضافه کردن هندلرها"""
 
     # ابتدا هندلرهای خاص را اضافه کنید
     application.add_handler(MessageHandler(
