@@ -92,7 +92,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         else:
             await update.message.reply_text(
-                f"سلام {user_first_name} عزیز! 👋\nبرای فعال‌سازی حساب، لطفا ربات را در چت خصوصی استارت کنید:\n@{context.bot.username}",
+                f"سلام {user_first_name} عزیz! 👋\nبرای فعال‌سازی حساب، لطفا ربات را در چت خصوصی استارت کنید:\n@{context.bot.username}",
                 reply_markup=ReplyKeyboardRemove()
             )
     else:
@@ -124,7 +124,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📊 آمار کلی:\n"
         f"✅ کاربران تأیید شده: {total_verified} نفر\n"
         f"⏳ کاربران در انتظار: {total_pending} نفر\n"
-        f"❌ کاربران مسدود شده: {total_blocked} نفر\n"
+        ف"❌ کاربران مسدود شده: {total_blocked} نفر\n"
         f"📅 جلسات ثبت شده: {total_meetings} جلسه\n"
         f"🎯 جلسات فعال: {active_meetings_count} جلسه\n\n"
         "🔧 گزینه مورد نظر را انتخاب کنید:"
@@ -956,7 +956,7 @@ def setup_handlers():
             MEETING_TOPICS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_topics)],
             MEETING_INVITEES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_invitees)],
             MEETING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_link)],
-            MEETING_FILES: [MessageHandler(filters.TEXT | filters.DOCUMENT, get_meeting_files)],
+            MEETING_FILES: [MessageHandler(filters.TEXT | filters.Document.ALL, get_meeting_files)],
             MEETING_CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_meeting)]
         },
         fallbacks=[CommandHandler('cancel', cancel)],
