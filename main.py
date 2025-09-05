@@ -1,6 +1,5 @@
 import os
 import logging
-from flask import Flask, request
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
@@ -617,7 +616,7 @@ async def get_meeting_duration(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     return MEETING_LOCATION
 
-async def get_meeting_location(update: Update, context: Types.DEFAULT_TYPE):
+async def get_meeting_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دریافت مکان جلسه"""
     context.user_data['meeting_data']['location'] = update.message.text
     await update.message.reply_text(
@@ -811,4 +810,180 @@ async def handle_attendance_callback(update: Update, context: ContextTypes.DEFAU
     # اضافه کردن کاربر به لیست حضور
     meeting_attendance[meeting_id].add(user_id)
 
-   
+    # آپدیت پیام
+    await update_meeting_message(context, meeting_id)
+
+    await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ حضور شما ثبت شد", callback_data="attended")
+    ]]))
+
+async def update_meeting_message(context: ContextTypes.DEFAULT_TYPE, meeting_id):
+    """آپدیت پیام جلسه با لیست حضور جدید"""
+    if meeting_id not in meetings or meeting_id not in meeting_messages:
+        return
+
+    meeting_data = meetings[meeting_id]
+    attendees = meeting_attendance[meeting_id]
+    total_invitees = len(meeting_data['invitees'])
+
+    # ساخت متن جدید
+    message_text = (
+        f"🎯 **جلسه هماهنگی پروژه**\n\n"
+        f"📅 **تاریخ:** {meeting_data['date']}\n"
+        f"⏰ **ساعت:** {meeting_data['time']} ({meeting_data['duration']})\n"
+        f"📍 **مکان:** {meeting_data['location']}\n"
+        f"🎙️ **مدیر جلسه:** {meeting_data['manager']}\n\n"
+        f"📌 **موضوعات جلسه:**\n"
+    )
+
+    topics = meeting_data['topics'].split('\n')
+    for topic in topics:
+        message_text += f"• {topic}\n"
+
+    message_text += f"\n👥 **اعضای دعوت شده ({total_invitees} نفر):**\n"
+
+    for i, invitee in enumerate(meeting_data['invitees'][:5], 1):
+        message_text += f"✅ {invitee}\n"
+
+    if total_invitees > 5:
+        message_text += f"📦 و {total_invitees - 5} نفر دیگر...\n"
+
+    message_text += (
+        f"\n──────────────\n"
+        f"🔔 **اعلام حضور:**\n"
+        f"──────────────\n\n"
+        f"📊 **حضور و غیاب ({len(attendees)} نفر):**\n"
+        f"✅ حاضرین ({len(attendees)}): \n"
+    )
+
+    # نمایش 5 کاربر اول
+    attendee_names = []
+    for user_id in list(attendees)[:5]:
+        try:
+            user = await context.bot.get_chat(user_id)
+            attendee_names.append(f"@{user.username}" if user.username else user.first_name)
+        except:
+            attendee_names.append(f"User_{user_id}")
+
+    if attendee_names:
+        message_text += ", ".join(attendee_names) + "\n"
+
+    if len(attendees) > 5:
+        message_text += f"📦 و {len(attendees) - 5} نفر دیگر...\n"
+
+    waiting = total_invitees - len(attendees)
+    message_text += f"⏳ در انتظار ({waiting}): \n"
+    message_text += f"❌ غایبین (0): \n"
+
+    if meeting_data['link'] and meeting_data['link'] != 'ندارد':
+        message_text += f"\n💬 **لینک جلسه:** {meeting_data['link']}\n"
+
+    if meeting_data['files'] and meeting_data['files'] != 'ندارد':
+        message_text += f"📎 **فایل‌های مرتبط:** ✅ ارسال شده\n"
+
+    message_text += f"\n⏰ **شناسه جلسه:** #{meeting_id}"
+
+    # آپدیت پیام
+    try:
+        await context.bot.edit_message_text(
+            chat_id=GROUP_CHAT_ID,
+            message_id=meeting_messages[meeting_id],
+            text=message_text,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logger.error(f"Error updating meeting message: {e}")
+
+# اضافه کردن هندلرها
+def setup_handlers():
+    """تنظیم و اضافه کردن هندلرها"""
+
+    # اضافه کردن هندلرهای اصلی
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
+        (filters.Regex(r'✅ تایید کاربر \d+') | filters.Regex(r'❌ رد کاربر \d+')),
+        handle_admin_approval
+    ))
+
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=ADMIN_ID),
+        handle_admin_commands
+    ))
+
+    # ConversationHandler برای احراز هویت
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler('start', start_command)],
+        states={
+            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
+            PHONE: [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), get_phone)],
+            SCREENSHOT: [MessageHandler(filters.PHOTO, get_screenshot)],
+            CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_data)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    )
+
+    application.add_handler(conv_handler)
+    application.add_handler(MessageHandler(filters.TEXT & filters.Chat(chat_id=GROUP_CHAT_ID), handle_group_messages))
+    application.add_error_handler(error_handler)
+
+    # اضافه کردن هندلر مدیریت جلسات
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
+        (filters.Regex('📅 مدیریت جلسات')),
+        manage_meetings
+    ))
+
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
+        (filters.Regex('🎯 ایجاد جلسه جدید')),
+        create_meeting_start
+    ))
+
+    # ConversationHandler برای ایجاد جلسه
+    meeting_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(
+            filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
+            filters.Regex('🎯 ایجاد جلسه جدید'),
+            create_meeting_start
+        )],
+        states={
+            MEETING_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_date)],
+            MEETING_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_time)],
+            MEETING_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_duration)],
+            MEETING_LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_location)],
+            MEETING_MANAGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_manager)],
+            MEETING_TOPICS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_topics)],
+            MEETING_INVITEES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_invitees)],
+            MEETING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_link)],
+            MEETING_FILES: [MessageHandler(filters.TEXT | filters.DOCUMENT, get_meeting_files)],
+            MEETING_CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_meeting)]
+        },
+        fallbacks=[CommandHandler('cancel', cancel)],
+        allow_reentry=True
+    )
+
+    application.add_handler(meeting_conv_handler)
+
+    # اضافه کردن هندلر callback برای دکمه حضور
+    application.add_handler(CallbackQueryHandler(
+        handle_attendance_callback,
+        pattern=r"^attend_"
+    ))
+
+# راه‌اندازی اولیه
+setup_handlers()
+load_bot_state()
+
+def main():
+    """تابع اصلی برای اجرای ربات"""
+    print("🤖 Starting Telegram Bot...")
+    
+    # اجرای polling (مناسب برای GitHub Actions)
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True
+    )
+
+if __name__ == '__main__':
+    main()
