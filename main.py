@@ -21,13 +21,11 @@ from collections import defaultdict
 from datetime import datetime
 import random
 import asyncio
-from flask import Flask, request
 
 # تنظیمات از متغیرهای محیطی
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', 5872842793))
 GROUP_CHAT_ID = int(os.environ.get('GROUP_CHAT_ID', -1002907242405))
-PORT = int(os.environ.get('PORT', 5000))
 
 # حالت‌های مکالمه
 (
@@ -60,10 +58,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ایجاد application
-application = Application.builder().token(BOT_TOKEN).build()
-
-# ایجاد برنامه Flask
-app = Flask(__name__)
+application = pplication.builder().token(BOT_TOKEN).build()
 
 def save_bot_state():
     try:
@@ -76,6 +71,7 @@ def load_bot_state():
         print("💾 Bot state loaded")
     except Exception as e:
         logger.error(f"Error loading state: {e}")
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_first_name = update.effective_user.first_name
@@ -949,131 +945,6 @@ async def update_meeting_message(context: ContextTypes.DEFAULT_TYPE, meeting_id)
 # در تابع setup_handlers() این بخش را اصلاح کنید:
 
 def setup_handlers():
-    """تنظیم و اضافه کردن هندلرها"""
-
-    # ابتدا هندلرهای خاص را اضافه کنید
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
-        (filters.Regex(r'✅ تایید کاربر \d+') | filters.Regex(r'❌ رد کاربر \d+')),
-        handle_admin_approval
-    ))
-
-    # ConversationHandler برای ایجاد جلسه
-    meeting_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(
-            filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
-            filters.Regex('^🎯 ایجاد جلسه جدید$'),
-            create_meeting_start
-        )],
-        states={
-            MEETING_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_date)],
-            MEETING_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_time)],
-            MEETING_DURATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_duration)],
-            MEETING_LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_location)],
-            MEETING_MANAGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_manager)],
-            MEETING_TOPICS: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_topics)],
-            MEETING_INVITEES: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_invitees)],
-            MEETING_LINK: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_meeting_link)],
-            MEETING_FILES: [MessageHandler(filters.TEXT | filters.Document.ALL, get_meeting_files)],
-            MEETING_CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_meeting)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-        allow_reentry=True
-    )
-
-    application.add_handler(meeting_conv_handler)
-
-    # هندلر برای مدیریت جلسات
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
-        filters.Regex('^📅 مدیریت جلسات$'),
-        manage_meetings
-    ))
-
-    # هندلر برای دستورات ادمین
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Chat(chat_id=ADMIN_ID) &
-        (filters.Regex('^📊 آمار کاربران$') | 
-         filters.Regex('^📋 کاربران در انتظار$') |
-         filters.Regex('^✅ کاربران تأیید شده$') |
-         filters.Regex('^❌ کاربران مسدود شده$') |
-         filters.Regex('^🗑️ پاک کردن حافظه$') |
-         filters.Regex('^🔄 بروزرسانی پنل$') |
-         filters.Regex('^🔥 بله، پاک کن$') |
-         filters.Regex('^❌ انصراف$')),
-        handle_admin_commands
-    ))
-
-    # ConversationHandler برای احراز هویت
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start_command)],
-        states={
-            NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            PHONE: [MessageHandler(filters.CONTACT | (filters.TEXT & ~filters.COMMAND), get_phone)],
-            SCREENSHOT: [MessageHandler(filters.PHOTO, get_screenshot)],
-            CONFIRMATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_data)]
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-        allow_reentry=True
-    )
-
-    application.add_handler(conv_handler)
-    
-    application.add_handler(MessageHandler(filters.TEXT & filters.Chat(chat_id=GROUP_CHAT_ID), handle_group_messages))
-    
-    # اضافه کردن هندلر callback برای دکمه حضور
-    application.add_handler(CallbackQueryHandler(
-        handle_attendance_callback,
-        pattern=r"^attend_"
-    ))
-
-    # هندلر عمومی ادمین
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Chat(chat_id=ADMIN_ID),
-        handle_admin_commands
-    ))
-
-    application.add_error_handler(error_handler)
-
-# راه‌اندازی اولیه
-setup_handlers()
-load_bot_state()
-
-@app.route('/')
-def home():
-    return "🤖 ربات تلگرام فعال است! ✅"
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    try:
-        json_data = request.get_json(force=True)
-        update = Update.de_json(json_data, application.bot)
-        application.process_update(update)
-        return 'OK'
-    except Exception as e:
-        logger.error(f"Error in webhook: {e}")
-        return 'ERROR', 500
-
-async def set_webhook():
-    """تنظیم وب‌هوک"""
-    webhook_url = f"https://your-app-name.onrender.com/webhook"
-    await application.bot.set_webhook(webhook_url)
-    print(f"✅ Webhook set to: {webhook_url}")
-
-if __name__ == '__main__':
-    # اجرای وب‌سرور Flask
-    print("🤖 Starting Telegram Bot on Render...")
-    
-    # تنظیم وب‌هوک
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=f"https://your-app-name.onrender.com/{BOT_TOKEN}",
-        drop_pending_updates=True
-    )
-    
-    app.run(host='0.0.0.0', port=PORT)
     """تنظیم و اضافه کردن هندلرها"""
 
     # ابتدا هندلرهای خاص را اضافه کنید
